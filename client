@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+
+import argparse;
+import socket;
+import ssl;
+
+def parseArgs():
+	"""
+	Parse the user input from command-line.
+	return: arguments from the user input.
+	"""
+	parser = argparse.ArgumentParser(description='Parse the command-line input');
+	# Optional argument. The TCP port that the server is listening on
+	parser.add_argument('-p', type=int, action='store', dest='port',
+		help='the TCP port that the server is listening on');
+	# Optional argument. Whether the client should use an SSL encrypted socket connection or not.
+	parser.add_argument('-s', action='store_true', dest='secure',
+		help='whether the client should use an SSL encrypted socket connection or not');
+	# Required argument. The name of the server.
+	parser.add_argument('hostname', type=str, action='store',
+		help='the name of the server (either a DNS name or an IP address in dotted notation)');
+	# Required argument. The NEU ID of user.
+	parser.add_argument('nuid', type=str, action='store', help='NEU ID');
+
+	args = parser.parse_args();
+
+	# Set the default port value if it's not in the input
+	if not args.port:
+		# If it's a secure connection, set it to a different default port.
+		if args.secure:
+			args.port = 27994;
+		else:
+			args.port = 27993;
+
+	return args;
+
+def createSocket(args):
+	"""
+	Create socket object and connect to server. Then exchange
+	messages with server accordingly.
+	param args: parsed arguments from command-line
+	"""
+	HOST = args.hostname;
+	PORT = args.port;
+
+	header = 'cs3700fall2019';
+
+	with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+		# If user requested secure connection, open a SSL socket connection
+		if args.secure:
+			s = ssl.wrap_socket(s, ssl_version=ssl.PROTOCOL_TLS);
+
+		s.connect((HOST, PORT));
+		s.sendall((header + ' HELLO ' + str(args.nuid) + '\n').encode('ascii'));
+		message = '';
+		while True:
+			while(message.endswith('\n') != True):
+				message += s.recv(8192).decode('ascii');
+			try:
+				splitMsg = message.split(' ');
+				if splitMsg[0] != header:
+					raise Exception('The message does not have the correct header: ' + message);
+				# Check if this is the correct FIND message and send the COUNT message to the server
+				elif splitMsg[1] == 'FIND' and len(splitMsg) == 4:
+					# Check if the FIND message does contain a ASCII character
+					if len(splitMsg[2]) != 1:
+						raise Exception('The FIND message received does not contain a single ASCII character');
+					count = splitMsg[3].count(splitMsg[2]);
+					s.sendall((header + ' COUNT ' + str(count) + '\n').encode('ascii'));
+				# Check if this is the correct BYE message, output the secret flag, and
+				# break the while loop.
+				elif splitMsg[1] == 'BYE' and len(splitMsg) == 3:
+					# Check if the secret flag is 64 byte string
+					if len(splitMsg[2][:-1]) != 64:
+						raise Exception('The secret flag received has incorrect size: ' + str(len(splitMsg[2])));
+					print(splitMsg[2]);
+					break;
+				else:
+					raise Exception('The message received is not correct: ' + message);
+			except Exception as err:
+				print('Error: ' + str(err));
+				exit();
+			finally:
+				message = '';
+
+
+
+def main():
+	"""
+	The main method will parse user input, create a socket,
+	connect to the server, receive messages from server,
+	reply to the server, and doing this back and forth.
+	"""
+	args = parseArgs();
+	createSocket(args);
+
+
+if __name__ == "__main__":
+	# Calls main when being invoked directly
+	main();
